@@ -91,4 +91,5 @@ ROBOTSTXT_OBEY = True
 
 FEED_URI = 'posts.csv'
 FEED_FORMAT = 'csv'
+#FEED_EXPORT_FIELDS = ['date', 'blog_id', 'post_no', 'url', 'src', 'title', 'body']
 LOG_LEVEL = 'INFO'

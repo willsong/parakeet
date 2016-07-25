@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import scrapy
-from parakeet.items import BlogPostItem
+from parakeet.items import BlogPostItem, BlogCommentItem
 from HTMLParser import HTMLParser
 
 class MLStripper(HTMLParser):
@@ -30,14 +30,22 @@ class NaverBlogSpider(scrapy.Spider):
     page = 1
     post_count = 0
 
+    search_term = '박유천'
+    start_date = '2016-01-01'
+    end_date = '2016-07-25'
+
     def __init__(self, *args, **kwargs):
         self.start_urls = [self.get_query_url()]
         super(NaverBlogSpider, self).__init__(*args, **kwargs)
 
     def get_query_url(self):
         print '------------------------------- PAGE %s' % self.page
-        url = 'http://section.blog.naver.com/sub/SearchBlog.nhn?type=post&option.keyword=소비자&term=period&option.startDate=2015-01-01&option.endDate=2015-03-20&option.page.currentPage=%s&option.orderBy=date' % self.page
+        url = 'http://section.blog.naver.com/sub/SearchBlog.nhn?type=post&option.keyword=%s&term=period&option.startDate=%s&option.endDate=%s&option.page.currentPage=%s&option.orderBy=date' % (self.search_term, self.start_date, self.end_date, self.page)
         self.page += 1
+        return url
+
+    def get_comment_url(self, blog_id, post_no, page):
+        url = 'http://blog.naver.com/CommentList.nhn?blogId=%s&logNo=%s&currentPage=%s' % (blog_id, post_no, page)
         return url
 
     def parse(self, response):
@@ -65,10 +73,12 @@ class NaverBlogSpider(scrapy.Spider):
             post_url = 'http://blog.naver.com/PostView.nhn?blogId=%s&logNo=%s' % (user_id, post_id)
 
             post_item = BlogPostItem()
-            post_item['src'] = 'Naver'.encode('utf-8')
-            post_item['title'] = post_title.encode('utf-8')
-            post_item['url'] = post_url.encode('utf-8')
-            post_item['date'] = post_date.encode('utf-8')
+            post_item['a_date'] = post_date.encode('utf-8')
+            post_item['b_blog_id'] = user_id.encode('utf-8')
+            post_item['c_post_no'] = post_id.encode('utf-8')
+            post_item['d_url'] = post_url.encode('utf-8')
+            post_item['e_src'] = 'Naver'.encode('utf-8')
+            post_item['f_title'] = post_title.encode('utf-8')
 
             req = scrapy.Request(post_url, callback = self._parse_post)
             req.meta['post_item'] = post_item
@@ -98,6 +108,57 @@ class NaverBlogSpider(scrapy.Spider):
                 for body_part in post_body:
                     post_body_str.append(body_part.extract())
 
-        post_item['body'] = strip_tags(''.join(post_body_str)).replace("\n", '').replace("\r\n", '').replace("\r", '').encode('utf-8')
+        post_item['g_body'] = strip_tags(''.join(post_body_str)).replace("\n", '').replace("\r\n", '').replace("\r", '').encode('utf-8')
 
         yield post_item
+
+        # comments
+        comment_text = response.xpath('//a[contains(@class, "_cmtList")]/text()')
+        if len(comment_text):
+            num_comments = comment_text.re_first(r'(\d+)$')
+            if num_comments:
+                print '---------- COUNT COMMENTS: %s postid: %s' % (num_comments, post_item['c_post_no'])
+                comment_url = self.get_comment_url(post_item['b_blog_id'], post_item['c_post_no'], 1)
+                req = scrapy.Request(comment_url, callback = self._parse_comments)
+                req.meta['post_item'] = post_item
+                req.meta['comment_page_no'] = 1
+
+                yield req
+
+    def _parse_comments(self, response):
+        post_item = response.meta['post_item']
+        comment_page_no = response.meta['comment_page_no']
+
+        if comment_page_no == 1:
+            yield post_item
+
+        comment_list = response.xpath('//ul[@id="commentList"]//li[contains(@class, "_countableComment")]')
+        comment_nav = response.xpath('//div[contains(@class, "cc_paginate")]')
+        print 'NUM COMMENTS: %s PAGE: %s SHITE: %s postid: %s' % (len(comment_list), comment_page_no, len(comment_nav), post_item['c_post_no'])
+
+        for c in comment_list:
+            user_name = c.xpath('//dt[contains(@class, "h")]//a[contains(@class, "nick")]')
+
+            if len(user_name):
+                user_name = c.xpath('//dt[contains(@class, "h")]//a[contains(@class, "nick")]/text()').extract()[0]
+                comment_date = c.xpath('//dt[contains(@class, "h")]//span[contains(@class, "date")]/text()').extract()[0]
+                comment_body = c.xpath('//dd[contains(@class, "comm")]/text()').extract()[0]
+
+                print 'COMMENT USERNAME: %s date: %s body: %s' % (user_name, comment_date, comment_body)
+
+            '''
+            comment_item = BlogCommentItem()
+            comment_item['a_post_no'] = post_item['c_post_no']
+            comment_item['b_blog_id'] = post_item['b_blog_id']
+            comment_item['c_user_name'] = post_item['c_post_no']
+            comment_item['d_date'] = post_item['c_post_no']
+            comment_item['e_body'] = post_item['c_post_no']
+            '''
+
+        if len(comment_list) and len(comment_nav):
+            comment_url = self.get_comment_url(post_item['b_blog_id'], post_item['c_post_no'], comment_page_no + 1)
+            req = scrapy.Request(comment_url, callback = self._parse_comments)
+            req.meta['post_item'] = post_item
+            req.meta['comment_page_no'] = comment_page_no + 1
+            yield req
+
