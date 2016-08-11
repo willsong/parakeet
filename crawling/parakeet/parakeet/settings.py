@@ -64,9 +64,9 @@ ROBOTSTXT_OBEY = True
 
 # Configure item pipelines
 # See http://scrapy.readthedocs.org/en/latest/topics/item-pipeline.html
-#ITEM_PIPELINES = {
-#    'parakeet.pipelines.SomePipeline': 300,
-#}
+ITEM_PIPELINES = {
+    'parakeet.pipelines.ParakeetPipeline': 300
+}
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See http://doc.scrapy.org/en/latest/topics/autothrottle.html
@@ -89,7 +89,7 @@ ROBOTSTXT_OBEY = True
 #HTTPCACHE_IGNORE_HTTP_CODES = []
 #HTTPCACHE_STORAGE = 'scrapy.extensions.httpcache.FilesystemCacheStorage'
 
-FEED_URI = 'posts.csv'
-FEED_FORMAT = 'csv'
+#FEED_URI = 'posts.csv'
+#FEED_FORMAT = 'csv'
 #FEED_EXPORT_FIELDS = ['date', 'blog_id', 'post_no', 'url', 'src', 'title', 'body']
 LOG_LEVEL = 'INFO'

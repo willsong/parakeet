@@ -2,30 +2,31 @@
 
 from scrapy import signals
 from scrapy.exporters import CsvItemExporter
+from scrapy.xlib.pydispatch import dispatcher
+
+def item_type(item):
+    return type(item).__name__.replace('Item', '').lower()
 
 class ParakeetPipeline(object):
 
-    def __init__(self):
-        self.files = {}
+    save_types = ['blogpost', 'blogcomment']
+    csv_dir = '/tmp/csv/'
 
-    @classmethod
-    def from_crawler(cls, crawler):
-        pipeline = cls()
-        crawler.signals.connect(pipeline.spider_opened, signals.spider_opened)
-        crawler.signals.connect(pipeline.spider_closed, signals.spider_closed)
-        return pipeline
+    def __init__(self):
+        dispatcher.connect(self.spider_opened, signal=signals.spider_opened)
+        dispatcher.connect(self.spider_closed, signal=signals.spider_closed)
 
     def spider_opened(self, spider):
-        _file = open('%_posts.csv' % spider.name, 'w+b')
-        self.files[spider] = _file
-        self.exporter = CsvItemExporter(_file)
-        self.exporter.start_exporting()
+        self.files = dict([ (name, open(self.csv_dir + name + '.csv', 'w+b')) for name in self.save_types ])
+        self.exporters = dict([ (name, CsvItemExporter(self.files[name])) for name in self.save_types])
+        [e.start_exporting() for e in self.exporters.values()]
 
     def spider_closed(self, spider):
-        self.exporter.finish_exporting()
-        _file = self.files.pop(spider)
-        _file.close()
+        [e.finish_exporting() for e in self.exporters.values()]
+        [f.close() for f in self.files.values()]
 
     def process_item(self, item, spider):
-        self.exporter.export_item(item)
+        what = item_type(item)
+        if what in set(self.save_types):
+            self.exporters[what].export_item(item)
         return item

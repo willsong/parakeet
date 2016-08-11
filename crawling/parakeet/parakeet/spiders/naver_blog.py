@@ -30,16 +30,15 @@ class NaverBlogSpider(scrapy.Spider):
     page = 1
     post_count = 0
 
-    search_term = '박유천'
-    start_date = '2016-01-01'
-    end_date = '2016-07-25'
+    search_term = '블랙컨슈머 보험사기'
+    start_date = '2014-01-01'
+    end_date = '2016-08-11'
 
     def __init__(self, *args, **kwargs):
         self.start_urls = [self.get_query_url()]
         super(NaverBlogSpider, self).__init__(*args, **kwargs)
 
     def get_query_url(self):
-        print '------------------------------- PAGE %s' % self.page
         url = 'http://section.blog.naver.com/sub/SearchBlog.nhn?type=post&option.keyword=%s&term=period&option.startDate=%s&option.endDate=%s&option.page.currentPage=%s&option.orderBy=date' % (self.search_term, self.start_date, self.end_date, self.page)
         self.page += 1
         return url
@@ -56,35 +55,42 @@ class NaverBlogSpider(scrapy.Spider):
         res_meta = response.xpath('//p[@class="several_post"]/em/text()')
         num_posts = res_meta.re_first(r'^(\d+)')
 
+        p_count = 0
         for p in posts:
-            url = p.xpath('./h5/a/@href')
-            post_title = p.xpath('./h5/a/text()').extract()[0]
-            post_date = p.xpath('./div[@class="list_data"]/span[@class="date"]/text()').extract()[0]
+            try:
+                url = p.xpath('./h5/a/@href')
+                post_title = p.xpath('./h5/a/text()').extract()[0]
+                post_date = p.xpath('./div[@class="list_data"]/span[@class="date"]/text()').extract()[0]
 
-            user_id = ''
-            post_id = ''
-            if url.re_first(r'^http:\/\/blog\.naver\.com\/'):
-                user_id = url.re_first(r'^http:\/\/blog\.naver\.com\/(.*?)\?')
-                post_id = url.re_first(r'^http:\/\/blog\.naver\.com\/.*?logNo=(.*?)&')
-            elif url.re_first(r'blog\.me'):
-                user_id = url.re_first(r'^http:\/\/(.*?)\.blog\.me')
-                post_id = url.re_first(r'^http:\/\/.*?\.blog\.me\/(.*?)$')
+                user_id = ''
+                post_id = ''
+                if url.re_first(r'^http:\/\/blog\.naver\.com\/'):
+                    user_id = url.re_first(r'^http:\/\/blog\.naver\.com\/(.*?)\?')
+                    post_id = url.re_first(r'^http:\/\/blog\.naver\.com\/.*?logNo=(.*?)&')
+                elif url.re_first(r'blog\.me'):
+                    user_id = url.re_first(r'^http:\/\/(.*?)\.blog\.me')
+                    post_id = url.re_first(r'^http:\/\/.*?\.blog\.me\/(.*?)$')
 
-            post_url = 'http://blog.naver.com/PostView.nhn?blogId=%s&logNo=%s' % (user_id, post_id)
+                post_url = 'http://blog.naver.com/PostView.nhn?blogId=%s&logNo=%s' % (user_id, post_id)
 
-            post_item = BlogPostItem()
-            post_item['a_date'] = post_date.encode('utf-8')
-            post_item['b_blog_id'] = user_id.encode('utf-8')
-            post_item['c_post_no'] = post_id.encode('utf-8')
-            post_item['d_url'] = post_url.encode('utf-8')
-            post_item['e_src'] = 'Naver'.encode('utf-8')
-            post_item['f_title'] = post_title.encode('utf-8')
+                post_item = BlogPostItem()
+                post_item['a_date'] = post_date.encode('utf-8')
+                post_item['b_blog_id'] = user_id.encode('utf-8')
+                post_item['c_post_no'] = post_id.encode('utf-8')
+                post_item['d_url'] = post_url.encode('utf-8')
+                post_item['e_src'] = 'Naver'.encode('utf-8')
+                post_item['f_title'] = post_title.encode('utf-8')
 
-            req = scrapy.Request(post_url, callback = self._parse_post)
-            req.meta['post_item'] = post_item
-            yield req
+                req = scrapy.Request(post_url, callback = self._parse_post)
+                req.meta['post_item'] = post_item
+                yield req
 
-            self.post_count += 1
+                self.post_count += 1
+                p_count += 1
+            except IndexError:
+                print 'Index error... continue'
+                continue
+        print '------------------------------- PAGE %s POST %s TOTAL: %s' % (self.page, p_count, self.post_count)
 
         if self.post_count >= num_posts:
             return
@@ -117,7 +123,6 @@ class NaverBlogSpider(scrapy.Spider):
         if len(comment_text):
             num_comments = comment_text.re_first(r'(\d+)$')
             if num_comments:
-                print '---------- COUNT COMMENTS: %s postid: %s' % (num_comments, post_item['c_post_no'])
                 comment_url = self.get_comment_url(post_item['b_blog_id'], post_item['c_post_no'], 1)
                 req = scrapy.Request(comment_url, callback = self._parse_comments)
                 req.meta['post_item'] = post_item
@@ -129,31 +134,33 @@ class NaverBlogSpider(scrapy.Spider):
         post_item = response.meta['post_item']
         comment_page_no = response.meta['comment_page_no']
 
-        if comment_page_no == 1:
-            yield post_item
-
-        comment_list = response.xpath('//ul[@id="commentList"]//li[contains(@class, "_countableComment")]')
+        comment_list = response.xpath('//ul[@id="commentList"]/li[contains(@class, "_countableComment")]')
         comment_nav = response.xpath('//div[contains(@class, "cc_paginate")]')
-        print 'NUM COMMENTS: %s PAGE: %s SHITE: %s postid: %s' % (len(comment_list), comment_page_no, len(comment_nav), post_item['c_post_no'])
 
+        c_count = 0
         for c in comment_list:
-            user_name = c.xpath('//dt[contains(@class, "h")]//a[contains(@class, "nick")]')
+            try:
+                user_name = c.xpath('.//dt[contains(@class, "h")]//a[contains(@class, "nick")]')
 
-            if len(user_name):
-                user_name = c.xpath('//dt[contains(@class, "h")]//a[contains(@class, "nick")]/text()').extract()[0]
-                comment_date = c.xpath('//dt[contains(@class, "h")]//span[contains(@class, "date")]/text()').extract()[0]
-                comment_body = c.xpath('//dd[contains(@class, "comm")]/text()').extract()[0]
+                if len(user_name):
+                    user_name = c.xpath('.//dt[contains(@class, "h")]//a[contains(@class, "nick")]/text()').extract()[0]
+                    comment_date = c.xpath('.//dt[contains(@class, "h")]//span[contains(@class, "date")]/text()').extract()[0]
+                    comment_body = c.xpath('.//dd[contains(@class, "comm")]/text()').extract()[0].strip()
 
-                print 'COMMENT USERNAME: %s date: %s body: %s' % (user_name, comment_date, comment_body)
+                    comment_item = BlogCommentItem()
+                    comment_item['a_post_no'] = post_item['c_post_no']
+                    comment_item['b_blog_id'] = post_item['b_blog_id']
+                    comment_item['c_user_name'] = user_name.encode('utf-8')
+                    comment_item['d_date'] = comment_date.encode('utf-8')
+                    comment_item['e_body'] = comment_body.encode('utf-8')
 
-            '''
-            comment_item = BlogCommentItem()
-            comment_item['a_post_no'] = post_item['c_post_no']
-            comment_item['b_blog_id'] = post_item['b_blog_id']
-            comment_item['c_user_name'] = post_item['c_post_no']
-            comment_item['d_date'] = post_item['c_post_no']
-            comment_item['e_body'] = post_item['c_post_no']
-            '''
+                    yield comment_item
+                    c_count += 1
+
+            except IndexError:
+                print 'C Index error... continue'
+                continue
+        print '------------------------------- C_PAGE %s COMMS %s' % (comment_page_no, c_count)
 
         if len(comment_list) and len(comment_nav):
             comment_url = self.get_comment_url(post_item['b_blog_id'], post_item['c_post_no'], comment_page_no + 1)
